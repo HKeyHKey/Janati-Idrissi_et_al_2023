@@ -1,0 +1,85 @@
+data=read.csv('normalized_counts.tsv',sep='\t')
+metadata=read.csv('metadata.tsv',sep='\t')
+
+
+pairwise_difference_internal=function(x)
+{
+distances=c()
+for (index1 in 1:(length(x)-1))
+for (index2 in (index1+1):length(x))
+distances=append(distances,abs(x[index1]-x[index2]))
+return(distances)
+}
+
+pairwise_difference_external=function(x,y)
+{
+distances=c()
+for (index1 in 1:length(x))
+for (index2 in 1:length(y))
+distances=append(distances,abs(x[index1]-y[index2]))
+return(distances)
+}
+
+normality_test=function(x)
+{
+if (sd(x)==0) # Below: can't run a Shapiro-Wilk test on columns (=genes) which have only identical values; first identifying these genes and running the test on the other ones:
+{
+return(NA)
+} else return(shapiro.test(x)$p.value)
+}
+
+for (stage in unique(metadata$stage))
+{
+both_genotypes=list()
+genotype_index=0
+for (genotype in unique(metadata$genotype[metadata$stage==stage]))
+{
+sample_list=metadata$sample[metadata$stage==stage & metadata$genotype==genotype]
+column_list=(1:ncol(data))[is.element(colnames(data),sample_list)]
+genotype_index=genotype_index+1
+both_genotypes[[genotype_index]]=data[,column_list]
+if (genotype=='WT') index_WT=genotype_index
+}
+WT_array=c()
+for (column in 1:ncol(both_genotypes[[index_WT]]))
+WT_array=cbind(WT_array,both_genotypes[[index_WT]][,column])
+internal_differences=apply(WT_array,1,pairwise_difference_internal)
+index_MUT=3-index_WT
+MUT_array=c()
+for (column in 1:ncol(both_genotypes[[index_MUT]]))
+MUT_array=cbind(MUT_array,both_genotypes[[index_MUT]][,column])
+external_differences=c()
+for (row in 1:nrow(WT_array))
+external_differences=cbind(external_differences,pairwise_difference_external(WT_array[row,],MUT_array[row,]))
+### Below: evaluating normality of values in "internal_differences" and in "external_differences":
+out=apply(internal_differences,2,normality_test)
+length(out[!is.na(out) & out<0.05])/length(out[!is.na(out)]) # Clearly not normally distributed
+out=apply(external_differences,2,normality_test)
+length(out[!is.na(out) & out<0.05])/length(out[!is.na(out)]) # Clearly not normally distributed either
+
+pval=c()
+for (gene in 1:ncol(internal_differences))
+pval=append(pval,wilcox.test(internal_differences[,gene],external_differences[,gene],alternative='less')$p.value) # One-sided test (looking for inter-group variability exceeding intra-WT-group variability)
+adj_pval=p.adjust(pval,method='BH')
+
+### Below: outputing a CSV file containing inter-WT-group and intra-group variability ranges, with Wilcoxon test p-values (raw and adjusted) from their comparison:
+out_list=list(data$X,apply(internal_differences,2,min),apply(internal_differences,2,max),apply(external_differences,2,min),apply(external_differences,2,max),pval,adj_pval)
+names(out_list)=c('Gene','Intra-WT differences (min)','Intra-WT differences (max)','WT-to-MUT differences (min)','WT-to-MUT differences (max)','raw p-value','BH-adjusted p-value')
+write.csv(as.data.frame(out_list),paste('Inter_vs_intra_genotype_variability_stage_',stage,'.csv',sep=''))
+
+### Below: selecting the most extreme cases (minimal inter-group variability exceeds maximal intra-WT-group variability):
+extreme_genes=c()
+for (gene in 1:ncol(internal_differences))
+if (max(internal_differences[,gene])<min(external_differences[,gene])) extreme_genes=append(extreme_genes,gene)
+
+for (gene in extreme_genes)
+{
+y_range=max(pretty(c(0,max(c(WT_array[gene,],MUT_array[gene,])))))
+pdf(paste('Extreme_candidate_in_',stage,'_gene_',data$X[gene],'.pdf',sep=''),width=6,height=6)
+boxplot(WT_array[gene,],MUT_array[gene,],ylim=c(0,y_range),axes=F,main=paste(data$X[gene],'in',stage),ylab='mRNA abundance (DESeq2-normalized)')
+axis(2)
+axis(1,labels=c('WT','MUT'),at=c(1,2))
+dev.off()
+}
+
+}
