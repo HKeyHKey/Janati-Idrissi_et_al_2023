@@ -1,0 +1,37 @@
+#input='Predicted_stabilities_EV_differentially_expressed_TargetScan_predicted.dat'
+args = commandArgs(trailingOnly=TRUE)
+input=args[1]
+
+data=read.table(input,header=T)
+output=sub('^','Boxplot_',sub('.dat$','.pdf',input))
+
+Tead3b_site_stability=data$DeltaG[data$Gene=='ENSORLG00000006370']
+Tead3b_site_type=sub('_.*','',sub('^5p_','',data$Site[data$Gene=='ENSORLG00000006370']))
+
+
+type_list=c('8mer-1a','7mer-m8','7mer-1a','6mer')
+all=list(data$DeltaG)
+index=1
+site_nb=c(length(data$Gene))
+gene_nb=c(length(unique(data$Gene)))
+for (type in type_list)
+{
+index=index+1
+all[[index]]=data$DeltaG[grep(paste('5p_',type,'_',sep=''),data$Site)]
+site_nb=append(site_nb,length(data$Gene[grep(paste('5p_',type,'_',sep=''),data$Site)]))
+gene_nb=append(gene_nb,length(unique(data$Gene[grep(paste('5p_',type,'_',sep=''),data$Site)])))
+}
+pdf(output,width=11,height=7)
+boxplot(all,axes=F,ylab='DeltaG (kcal/mol)')
+axis(1,labels=paste(c('All',type_list),'\n(',site_nb,' sites in ',gene_nb,' genes)',sep=''),at=c(1:(length(type_list)+1)),padj=0.31)
+axis(2)
+lines(c(0.5,length(type_list)+1.5),rep(Tead3b_site_stability,2),col='red',lty=2)
+for (x in c(1,c(1:(length(type_list)+1))[c('All',type_list)==Tead3b_site_type]))
+points(x,Tead3b_site_stability,col='red',pch=16)
+
+percentage_less_stable=c()
+for (i in 1:length(all))
+percentage_less_stable=append(percentage_less_stable,round(100*length(all[[i]][all[[i]]>=Tead3b_site_stability])/length(all[[i]])))
+arrows(c(1:length(all))+0.1,Tead3b_site_stability,c(1:length(all))+0.1,Tead3b_site_stability+2,length=0.1,col='red')
+text(c(1:length(all))+0.1,Tead3b_site_stability,paste(percentage_less_stable,'%',sep=''),col='red',pos=4)
+dev.off()
